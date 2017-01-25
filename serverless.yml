@@ -65,6 +65,10 @@ functions:
       - http:
           method: post
           path: /
+    environment:
+      CLIENT_ID: '2152947400.132918645495'
+      CLIENT_SECRET: '6e3be2c2af0d48664fd45e29b5a80df6'
+      REDIRECT_URI: https://xg44d0lklb.execute-api.eu-west-1.amazonaws.com/dev/
 
 #    The following are a few example events you can configure
 #    NOTE: Please make sure to change your handler code to work with those events
