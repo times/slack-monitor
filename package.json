@@ -9,6 +9,7 @@
   "author": "Elliot Davies",
   "license": "ISC",
   "dependencies": {
+    "aws-sdk": "^2.7.28",
     "node-fetch": "^1.6.3"
   }
 }

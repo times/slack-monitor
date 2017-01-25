@@ -1,13 +1,76 @@
 'use strict';
 
 const fetch = require('node-fetch');
+const aws = require('aws-sdk');
 
-const timesToken = 'vhdAS4B9roqEjYS08Is1thmb';
+// const timesToken = 'vhdAS4B9roqEjYS08Is1thmb';
 
+// env parameters
 const clientId = process.env.CLIENT_ID;
 const clientSecret = process.env.CLIENT_SECRET;
 const redirectUri = process.env.REDIRECT_URI;
 
+// Instantiate DB connection
+const dynamoDB = new aws.DynamoDB();
+
+// Get the record for a given team from the DB
+const getTeamFromDB = (teamId, cb) => {
+  const dynamoParams = {
+    Key: {
+     "id": {
+       S: teamId
+      }, 
+    }, 
+    TableName: "lighthouse-bot"
+  };
+
+  dynamoDB.getItem(dynamoParams, (err, data) => {
+    if (err) {
+      console.log(`Error retrieving data for ${teamId} from DynamoDB`, err);
+      cb(err);
+    }
+    else {
+      console.log(`Retrieved data for ${teamId} from DynamoDB:`, data);
+      cb(data.Item);
+    }
+  });
+};
+
+// Store a record for a given team in the DB
+const storeTeamInDB = (teamId, teamName, accessToken, webhookUrl, cb) => {
+
+  const dynamoParams = {
+    Item: {
+      "id": {
+        S: teamId
+      },
+      "teamName": {
+        S: teamName
+      },
+      "accessToken": {
+        S: accessToken
+      },
+      "webhookUrl": {
+        S: webhookUrl
+      }
+    },
+    TableName: "lighthouse-bot"
+  };
+
+  dynamoDB.putItem(dynamoParams, (err, data) => {
+    if (err) {
+      console.log(`Error storing data for ${teamName} in DynamoDB`, err);
+      cb(err);
+    }
+    else {
+      console.log(`Stored data for ${teamName}:`, data);
+      cb(data);
+    }
+  });
+};
+
+
+// Entry point
 module.exports.handler = (event, context, callback) => {
 
   console.log(`Received request via ${event.httpMethod}`);
@@ -15,9 +78,11 @@ module.exports.handler = (event, context, callback) => {
   const respond = sendResponse(callback);
 
   switch (event.httpMethod) {
+    // Get requests are only used for OAuth
     case 'GET':
-      getHandler(respond, event);
+      oAuthHandler(respond, event);
       return;
+    // Most requests from Slack will be via POST
     case 'POST':
       postHandler(respond, event);
       return;
@@ -25,6 +90,7 @@ module.exports.handler = (event, context, callback) => {
 };
 
 
+// Send a generic 200 OK response
 const sendResponse = callback => data => {
   callback(null, {
     statusCode: 200,
@@ -33,33 +99,48 @@ const sendResponse = callback => data => {
 }
 
 
-const getHandler = (respond, event) => {
+// Handle the Slack OAuth process
+const oAuthHandler = (respond, event) => {
 
+  // Attempt to extract the temporary code sent by Slack
   let code;
   try {
     code = event.queryStringParameters.code;
   } catch (e) {
+    console.log(`Error retrieving code from ${event.queryStringParameters}`);
     respond({ error: `Couldn't retrieve code from ${event.queryStringParameters}`, event })
     return;
   }
 
+  // Construct a URL to complete the process
   const url = `https://slack.com/api/oauth.access?client_id=${clientId}&client_secret=${clientSecret}&code=${code}&redirect_uri=${redirectUri}`
 
+  // Make a request to the URL
   fetch(url)
     .then(res => res.json())
     .then(data => {
-      console.log('OAuth completed successfully');
-      respond({
-        data
-      });
+      if (!data.ok) {
+        console.log(`Error during OAuth:`, data);
+        respond({
+          error: `Could not complete OAuth process`
+        });
+      } else {
+        console.log('OAuth completed successfully');
+        storeTeamInDB(data.team_id, data.team_name, data.access_token, data.incoming_webhook.url, (res) => {
+          console.log(res);
+          respond(res);
+        });
+      }
     });
 }
 
 
+// Handle incoming POST requests
 const postHandler = (respond, event) => {
 
-  console.log(event.body);
+  console.log(`POST body:`, event.body);
 
+  // Attempt to parse the event data
   let postBody;
   try {
     postBody = JSON.parse(event.body);
@@ -69,18 +150,47 @@ const postHandler = (respond, event) => {
     return;
   }
 
-  if (postBody.token !== timesToken) {
-    console.log(`Error: Token didn't match`);
-    respond({ error: `Error: Token didn't match` });
-    return;
-  }
+  // Get the record for the team that sent the request
+  // getTeamFromDB(...)
+  // const teamToken = '...';
 
+  // Check the token matches to avoid forged requests
+  // if (postBody.token !== teamToken) {
+  //   console.log(`Error: Token didn't match`);
+  //   respond({ error: `Error: Token didn't match` });
+  //   return;
+  // }
+
+  // Handle the different types of request
   switch (postBody.type) {
+    // Handle verification as part of the initial Slack app setup
     case 'url_verification':
       respond({ challenge: postBody.challenge });
       return;
+    // Fire a notification to Slack about the event
+    case 'event_callback':
+      console.log(`Saw event ${postBody.event.type}`);
+
+      getTeamFromDB(postBody.team_id, team => {
+
+        console.log('Team', team);
+
+        fetch(team.webhookUrl.S, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            text: `It works! Saw event ${postBody.event.type}`
+          })
+        })
+        .then(res => console.log('Slack webhook response:', res))
+        .catch(err => console.log('Slack webhook returned an error:', err));
+      })
+      return;
+    // Otherwise error
     default:
-      console.log(`Received type ${postBody.type}`);
+      console.log(`Error: Received event type ${postBody.type}`);
       respond({ error: `Unrecognised type: ${postBody.type}` });
       return;
   };
