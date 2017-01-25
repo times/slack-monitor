@@ -172,20 +172,8 @@ const postHandler = (respond, event) => {
       console.log(`Saw event ${postBody.event.type}`);
 
       getTeamFromDB(postBody.team_id, team => {
-
         console.log('Team', team);
-
-        fetch(team.webhookUrl.S, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            text: `It works! Saw event ${postBody.event.type}`
-          })
-        })
-        .then(res => console.log('Slack webhook response:', res))
-        .catch(err => console.log('Slack webhook returned an error:', err));
+        handleEvent(respond, team.webhookUrl.S, postBody.event)
       })
       return;
     // Otherwise error
@@ -195,3 +183,61 @@ const postHandler = (respond, event) => {
       return;
   };
 }
+
+
+const handleEvent = (respond, webhookUrl, event) => {
+
+  let eventName = event.type; // Default
+  let eventDesc = '';
+
+  switch (event.type) {
+    // Channels
+    case 'channel_created':
+      eventName = 'Channel created';
+      eventDesc = `<#${event.channel.id}|${event.channel.name}> was created by <@${event.channel.creator}>`;
+      break;
+    case 'channel_deleted':
+      eventName = 'Channel deleted';
+      eventDesc = `<#${event.channel}> was deleted`;
+      break;
+    case 'channel_rename':
+      eventName = 'Channel renamed';
+      eventDesc = `<#${event.channel.id}|${event.channel.name}> was renamed`;
+      break;
+    case 'channel_archive':
+      eventName = 'Channel archived';
+      eventDesc = `<#${event.channel}> was archived by <@${event.user}>`;
+      break;
+    case 'channel_unarchive':
+      eventName = 'Channel resurrected';
+      eventDesc = `<#${event.channel}> was un-archived by <@${event.user}>`;
+      break;
+    // Files
+    case 'file_comment_added':
+      eventName = 'File comment added';
+      eventDesc = `A file comment was added by <@${event.comment.user}>`;
+  };
+
+  const response = {
+    attachments: [
+      {
+        fallback: eventName,
+        title: eventName,
+        text: `${eventDesc}.`
+      }
+    ]
+  };
+  
+  // Just respond() here?
+  fetch(webhookUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(response)
+  })
+  .then(res => console.log('Successfully posted to Slack webhook'))
+  .catch(err => console.log('Slack webhook returned an error:', err));
+
+  respond();
+};
