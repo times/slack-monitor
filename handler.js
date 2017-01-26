@@ -165,7 +165,6 @@ const postHandler = (respond, event) => {
     // Fire a notification to Slack about the event
     case 'event_callback':
       getTeamFromDB(postBody.team_id, team => {
-        console.log('Team', team);
         handleEvent(respond, team.webhookUrl.S, postBody.event)
       })
       return;
@@ -184,7 +183,7 @@ const postHandler = (respond, event) => {
 const handleEvent = (respond, webhookUrl, event) => {
 
   console.log(event);
-  
+
   const eventDetails = eventMappings[event.type](event);
   const response = {
     attachments: [
@@ -277,6 +276,11 @@ const eventMappings = {
 
   user_change: event => ({
     name: 'User details updated',
+    /**
+     * To do:
+     *  – Is the user now disabled?
+     *  – Does the user have a profile picture?
+     */
     desc: `<@${event.user.id}>’s details were updated`,
   }),
 
@@ -284,12 +288,12 @@ const eventMappings = {
   // User groups
   subteam_created: event => ({
     name: 'New user group created',
-    desc: `The user group <@${event.subteam.id}> with the description "${event.subteam.description}" was created by <@${event.subteam.created_by}>`,
+    desc: `The user group <!subteam^${event.subteam.id}|${event.subteam.name}> with the description "${event.subteam.description}" was created by <@${event.subteam.created_by}>`,
   }),
 
   subteam_updated: event => ({
     name: 'User group updated',
-    desc: `The user group <@${event.subteam.id}> was updated by <@${event.subteam.updated_by}>`,
+    desc: `The user group <!subteam^${event.subteam.id}|${event.subteam.name}> was updated by <@${event.subteam.updated_by}>`,
   }),
 
 
@@ -306,6 +310,7 @@ const eventMappings = {
 
   file_public: event => ({
     name: 'File made public',
+    // This doesn't work
     desc: `The file <${event.file.permalink}|${event.file.title}> was made public`,
   }),
 
