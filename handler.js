@@ -3,8 +3,6 @@
 const fetch = require('node-fetch');
 const aws = require('aws-sdk');
 
-// const timesToken = 'vhdAS4B9roqEjYS08Is1thmb';
-
 // env parameters
 const clientId = process.env.CLIENT_ID;
 const clientSecret = process.env.CLIENT_SECRET;
@@ -13,14 +11,39 @@ const redirectUri = process.env.REDIRECT_URI;
 // Instantiate DB connection
 const dynamoDB = new aws.DynamoDB();
 
-// Get the record for a given team from the DB
+/**
+ * Serverless entry point
+ */
+module.exports.handler = (event, context, callback) => {
+  
+  console.log(`Received request via ${event.httpMethod}`);
+
+  const respond = sendResponse(callback);
+
+  switch (event.httpMethod) {
+    // Get requests are only used for OAuth
+    case 'GET':
+      oAuthHandler(respond, event);
+      return;
+    // Most requests from Slack will be via POST
+    case 'POST':
+      postHandler(respond, event);
+      return;
+  };
+};
+
+
+
+/**
+ * Get the record for a given team from the DB
+ */
 const getTeamFromDB = (teamId, cb) => {
   const dynamoParams = {
     Key: {
      "id": {
        S: teamId
       }, 
-    }, 
+    },
     TableName: "lighthouse-bot"
   };
 
@@ -29,14 +52,14 @@ const getTeamFromDB = (teamId, cb) => {
       console.log(`Error retrieving data for ${teamId} from DynamoDB`, err);
       cb(err);
     }
-    else {
-      console.log(`Retrieved data for ${teamId} from DynamoDB:`, data);
-      cb(data.Item);
-    }
+    else cb(data.Item);
   });
 };
 
-// Store a record for a given team in the DB
+
+/**
+ * Store a record for a given team in the DB
+ */
 const storeTeamInDB = (teamId, teamName, accessToken, webhookUrl, cb) => {
 
   const dynamoParams = {
@@ -62,35 +85,14 @@ const storeTeamInDB = (teamId, teamName, accessToken, webhookUrl, cb) => {
       console.log(`Error storing data for ${teamName} in DynamoDB`, err);
       cb(err);
     }
-    else {
-      console.log(`Stored data for ${teamName}:`, data);
-      cb(data);
-    }
+    else cb(data);
   });
 };
 
 
-// Entry point
-module.exports.handler = (event, context, callback) => {
-
-  console.log(`Received request via ${event.httpMethod}`);
-
-  const respond = sendResponse(callback);
-
-  switch (event.httpMethod) {
-    // Get requests are only used for OAuth
-    case 'GET':
-      oAuthHandler(respond, event);
-      return;
-    // Most requests from Slack will be via POST
-    case 'POST':
-      postHandler(respond, event);
-      return;
-  };
-};
-
-
-// Send a generic 200 OK response
+/**
+ * Send a generic 200 OK response
+ */
 const sendResponse = callback => data => {
   callback(null, {
     statusCode: 200,
@@ -99,7 +101,9 @@ const sendResponse = callback => data => {
 }
 
 
-// Handle the Slack OAuth process
+/**
+ * Handle the Slack OAuth process
+ */
 const oAuthHandler = (respond, event) => {
 
   // Attempt to extract the temporary code sent by Slack
@@ -128,17 +132,17 @@ const oAuthHandler = (respond, event) => {
         console.log('OAuth completed successfully');
         storeTeamInDB(data.team_id, data.team_name, data.access_token, data.incoming_webhook.url, (res) => {
           console.log(res);
-          respond(res);
+          respond('OAuth completed successfully');
         });
       }
     });
 }
 
 
-// Handle incoming POST requests
+/**
+ * Handle incoming POST requests
+ */
 const postHandler = (respond, event) => {
-
-  console.log(`POST body:`, event.body);
 
   // Attempt to parse the event data
   let postBody;
@@ -150,16 +154,7 @@ const postHandler = (respond, event) => {
     return;
   }
 
-  // Get the record for the team that sent the request
-  // getTeamFromDB(...)
-  // const teamToken = '...';
-
-  // Check the token matches to avoid forged requests
-  // if (postBody.token !== teamToken) {
-  //   console.log(`Error: Token didn't match`);
-  //   respond({ error: `Error: Token didn't match` });
-  //   return;
-  // }
+  // TODO: check the postBody.token matches the one Slack sent us during app registration
 
   // Handle the different types of request
   switch (postBody.type) {
@@ -169,8 +164,6 @@ const postHandler = (respond, event) => {
       return;
     // Fire a notification to Slack about the event
     case 'event_callback':
-      console.log(`Saw event ${postBody.event.type}`);
-
       getTeamFromDB(postBody.team_id, team => {
         console.log('Team', team);
         handleEvent(respond, team.webhookUrl.S, postBody.event)
@@ -185,50 +178,25 @@ const postHandler = (respond, event) => {
 }
 
 
+/**
+ * Handle Slack events
+ */
 const handleEvent = (respond, webhookUrl, event) => {
 
-  let eventName = event.type; // Default
-  let eventDesc = '';
-
-  switch (event.type) {
-    // Channels
-    case 'channel_created':
-      eventName = 'Channel created';
-      eventDesc = `<#${event.channel.id}|${event.channel.name}> was created by <@${event.channel.creator}>`;
-      break;
-    case 'channel_deleted':
-      eventName = 'Channel deleted';
-      eventDesc = `<#${event.channel}> was deleted`;
-      break;
-    case 'channel_rename':
-      eventName = 'Channel renamed';
-      eventDesc = `<#${event.channel.id}|${event.channel.name}> was renamed`;
-      break;
-    case 'channel_archive':
-      eventName = 'Channel archived';
-      eventDesc = `<#${event.channel}> was archived by <@${event.user}>`;
-      break;
-    case 'channel_unarchive':
-      eventName = 'Channel resurrected';
-      eventDesc = `<#${event.channel}> was un-archived by <@${event.user}>`;
-      break;
-    // Files
-    case 'file_comment_added':
-      eventName = 'File comment added';
-      eventDesc = `A file comment was added by <@${event.comment.user}>`;
-  };
-
+  console.log(event);
+  
+  const eventDetails = eventMappings[event.type](event);
   const response = {
     attachments: [
       {
-        fallback: eventName,
-        title: eventName,
-        text: `${eventDesc}.`
+        fallback: eventDetails.name,
+        title: eventDetails.name,
+        text: eventDetails.desc,
       }
     ]
   };
   
-  // Just respond() here?
+  // Just use respond here?
   fetch(webhookUrl, {
     method: 'POST',
     headers: {
@@ -240,4 +208,136 @@ const handleEvent = (respond, webhookUrl, event) => {
   .catch(err => console.log('Slack webhook returned an error:', err));
 
   respond();
+};
+
+
+/**
+ * Map event types to proper names and descriptions
+ */
+const eventMappings = {
+
+  // Team settings
+  team_rename: event => ({
+    name: 'Team renamed',
+    desc: `The team was renamed to ${event.name}`,
+  }),
+
+  team_domain_change: event => ({
+    name: 'Team domain changed',
+    desc: `The team domain was changed to ${event.domain} so the URL is now ${event.url}`,
+  }),
+
+  email_domain_changed: event => ({
+    name: 'Team email domain changed',
+    desc: `The team email domain was changed to ${event.email_domain}`,
+  }),
+
+
+  // Channels
+  channel_created: event => ({
+    name: 'Channel created',
+    desc: `<#${event.channel.id}|${event.channel.name}> was created by <@${event.channel.creator}>`,
+  }),
+
+  channel_deleted: event => ({
+    name: 'Channel deleted',
+    desc: `<#${event.channel}> was deleted`,
+  }),
+
+  channel_rename: event => ({
+    name: 'Channel renamed',
+    desc: `<#${event.channel.id}|${event.channel.name}> was renamed`,
+  }),
+
+  channel_archive: event => ({
+    name: 'Channel archived',
+    desc: `<#${event.channel}> was archived by <@${event.user}>`,
+  }),
+
+  channel_unarchive: event => ({
+    name: 'Channel resurrected',
+    desc: `<#${event.channel}> was un-archived by <@${event.user}>`,
+  }),
+
+
+  // Users
+  team_join: event => {
+
+    let userType;
+    if (event.user.is_bot) userType = 'bot';
+    else if (event.user.is_restricted) userType = 'guest';
+    else if (event.user.is_ultra_restricted) userType = 'single channel guest';
+    else userType = 'regular user';
+
+    return {
+      name: 'New user created',
+      desc: `<@${event.user.id}> joined the team as a ${userType}`,
+    };
+  },
+
+  user_change: event => ({
+    name: 'User details updated',
+    desc: `<@${event.user.id}>’s details were updated`,
+  }),
+
+
+  // User groups
+  subteam_created: event => ({
+    name: 'New user group created',
+    desc: `The user group <@${event.subteam.id}> with the description "${event.subteam.description}" was created by <@${event.subteam.created_by}>`,
+  }),
+
+  subteam_updated: event => ({
+    name: 'User group updated',
+    desc: `The user group <@${event.subteam.id}> was updated by <@${event.subteam.updated_by}>`,
+  }),
+
+
+  // Files
+  file_comment_added: event => ({
+    name: 'File comment added',
+    desc: `A file comment was added by <@${event.comment.user}>`,
+  }),
+
+  file_comment_edited: event => ({
+    name: 'File comment edited',
+    desc: `A file comment was edited by <@${event.comment.user}>`,
+  }),
+
+  file_public: event => ({
+    name: 'File made public',
+    desc: `The file <${event.file.permalink}|${event.file.title}> was made public`,
+  }),
+
+
+  // Emoji
+  emoji_changed: event => {
+
+    let name, desc;
+    switch (event.subtype) {
+      case 'add':
+        name = 'Custom emoji added';
+        desc = `A new custom emoji was created: :${event.name}:`
+        break;
+      case 'remove':
+        if (event.names.length === 1) {
+          name = 'Custom emoji removed';
+          desc = `The custom emoji :${event.names[0]}: was removed`;
+        } else {
+          name = 'Custom emojis removed';
+          desc = `The following custom emojis were removed: ${event.names[0].map(n => `:${n}:`).join(' ')}`;
+        }
+        break;
+      default:
+        name = 'Custom emoji event';
+        desc = `Something happened with a custom emoji, but I'm not sure what. The event type was ${event.subtype}`
+        break;        
+    }
+
+    return {
+      name,
+      desc,
+    }
+  },
+
 };
