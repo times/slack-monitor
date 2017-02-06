@@ -4,7 +4,7 @@
 const fetch = require('node-fetch');
 const aws = require('aws-sdk');
 
-const eventMappings = require('./events');
+const eventMappings = require('./events').eventMappings;
 
 // env parameters
 const clientId = process.env.CLIENT_ID;
