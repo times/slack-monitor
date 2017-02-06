@@ -1,7 +1,7 @@
 {
-  "name": "lighthouse-bot",
+  "name": "slack-monitor",
   "version": "1.0.0",
-  "description": "",
+  "description": "A Slack app that listens for Slack events and posts notifications into a channel",
   "main": "handler.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
