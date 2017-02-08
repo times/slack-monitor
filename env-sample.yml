@@ -1,0 +1,3 @@
+CLIENT_ID: '123456.789012'
+CLIENT_SECRET: 'abcdef123456'
+REDIRECT_URI: https://yourfunctionhere.execute-api.eu-west-1.amazonaws.com/prod/
