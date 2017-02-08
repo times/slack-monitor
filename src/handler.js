@@ -184,6 +184,8 @@ const postHandler = (respond, event) => {
  */
 const handleEvent = (respond, webhookUrl, event) => {
 
+  console.log('Incoming event: ', JSON.stringify(event));
+
   const eventDetails = eventMappings[event.type](event);
   const response = {
     attachments: [
