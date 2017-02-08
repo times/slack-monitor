@@ -15,7 +15,7 @@ The mapping from Slack events to nicely-formatted notifications is handled in `e
 
 The app is installed via an "Add to Slack" button. `index.html` provides a minimal HTML page that hosts such a button with the correct scopes and parameters.
 
-Serverless configuration is handled via `serverless.yml`. Environment variables are stored in an `env.yml` file, which you should not commit.
+Serverless configuration is handled via `serverless.yml`. Environment variables are stored in an `env.yml` file, which you should not commit. (An example is provided as `env-sample.yml`.)
 
 
 ### Development
